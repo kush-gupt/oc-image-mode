@@ -2,6 +2,8 @@ name: Integration tests
 
 on:
   workflow_dispatch:
+  pull_request:
+    branches: [main]
   workflow_run:
     workflows: ["Build CentOS Stream 10 bootc image for OpenCHAMI"]
     types: [completed]
@@ -12,6 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     if: >-
       github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'pull_request' ||
       github.event.workflow_run.conclusion == 'success'
 
     permissions:
@@ -30,14 +33,20 @@ jobs:
           sudo apt-get install -y -qq podman buildah
 
       - name: Log in to GHCR
+        if: github.event_name != 'pull_request'
         run: >-
-          podman login
+          sudo podman login
           -u "${{ github.actor }}"
           -p "${{ secrets.GITHUB_TOKEN }}"
           ghcr.io
 
       - name: Pull the image
-        run: podman pull "${IMAGE,,}"
+        if: github.event_name != 'pull_request'
+        run: sudo podman pull "${IMAGE,,}"
+
+      - name: Build the image locally (PR)
+        if: github.event_name == 'pull_request'
+        run: sudo buildah bud -t "${IMAGE,,}" -f Containerfile .
 
       - name: Run image inspection
         run: sudo bash tests/inspect-image.sh "${IMAGE,,}"
@@ -48,10 +57,11 @@ jobs:
     needs: inspect-image
     if: >-
       github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'pull_request' ||
       github.event.workflow_run.conclusion == 'success'
 
     env:
-      COMPOSE_FILE: "base.yml:postgres.yml:jwt-security.yml:openchami-svcs.yml"
+      COMPOSE_FILE: "base.yml:postgres.yml:jwt-security.yml:openchami-svcs.yml:ci-ports.yml"
 
     steps:
       - name: Clone the repository
@@ -70,6 +80,26 @@ jobs:
             sed -i "s|ghcr.io/openchami/${svc}:[^ ]*|ghcr.io/openchami/${svc}:latest|g" \
               openchami-svcs.yml
           done
+
+      - name: CI compose overrides (ports, disable JWT, enable impersonation)
+        working-directory: deployment-recipes/quickstart
+        run: |
+          cat > ci-ports.yml << 'YAML'
+          services:
+            smd:
+              ports:
+                - "27779:27779"
+              environment:
+                - SMD_JWKS_URL=
+            bss:
+              ports:
+                - "27778:27778"
+              environment:
+                - BSS_JWKS_URL=
+            cloud-init:
+              environment:
+                - IMPERSONATION=true
+          YAML
 
       - name: Generate OpenCHAMI configs
         working-directory: deployment-recipes/quickstart
@@ -91,17 +121,56 @@ jobs:
           EOF
 
           mkdir -p configs
-          cat > configs/opaal.yaml <<-'OPAAL'
-          issuer_url: http://opaal-idp:3332
-          login_url: http://opaal:3333
-          client_id: openchami
-          client_secret: ci-test-opaal-secret
-          redirect_uri: http://opaal:3333/callback
-          hydra_admin_url: http://hydra:4445
-          hydra_token_url: http://hydra:4444/oauth2/token
+          cat > configs/opaal.yaml << 'OPAAL'
+          version: "0.0.1"
+          server:
+            host: "opaal"
+            port: 3333
+            callback: "/oidc/callback"
+            issuer:
+              host: "opaal-idp"
+              port: 3332
+              clients:
+                - id: openchami
+                  secret: ci-test-opaal-secret
+                  name: openchami
+                  redirect-uris:
+                    - "http://opaal:3333/oidc/callback"
+          authentication:
+            state: ""
+            test-all: false
+            clients:
+              - id: openchami
+                secret: ci-test-opaal-secret
+                name: openchami
+                provider:
+                  issuer: "http://opaal-idp:3332"
+                redirect-uris:
+                  - "http://opaal:3333/oidc/callback"
+          authorization:
+            key-path: ./keys
+            token:
+              forwarding: false
+              refresh: false
+              duration: 16h
+            endpoints:
+              issuer: http://hydra:4444
+              config: http://hydra:4444/.well-known/openid-configuration
+              jwks: http://hydra:4444/.well-known/jwks.json
+              trusted-issuers: http://hydra:4445/admin/trust/grants/jwt-bearer/issuers
+              login: http://hydra:4433/self-service/login/api
+              clients: http://hydra:4445/admin/clients
+              authorize: http://hydra:4444/oauth2/auth
+              token: http://hydra:4444/oauth2/token
+          options:
+            run-once: true
+            open-browser: false
+            flow: authorization_code
+            cache-only: false
+            verbose: true
           OPAAL
 
-          cat > configs/hydra.yml <<-'HYDRA'
+          cat > configs/hydra.yml << 'HYDRA'
           serve:
             cookies:
               same_site_mode: Lax
@@ -124,9 +193,9 @@ jobs:
         working-directory: deployment-recipes/quickstart
         run: |
           echo "Waiting for OpenCHAMI services..."
-          for i in $(seq 1 60); do
+          for i in $(seq 1 90); do
             SMD_OK=$(curl -sf http://localhost:27779/hsm/v2/service/ready 2>/dev/null && echo yes || echo no)
-            CI_OK=$(curl -sf http://localhost:27777/cloud-init/version 2>/dev/null && echo yes || echo no)
+            CI_OK=$(curl -so /dev/null http://localhost:27777/version 2>/dev/null && echo yes || echo no)
             if [[ "$SMD_OK" == "yes" && "$CI_OK" == "yes" ]]; then
               echo "All services healthy after ${i}s"
               break
@@ -134,7 +203,7 @@ jobs:
             sleep 1
           done
           curl -sf http://localhost:27779/hsm/v2/service/ready
-          curl -sf http://localhost:27777/cloud-init/version
+          curl -so /dev/null -w "cloud-init: HTTP %{http_code}\n" http://localhost:27777/version
 
       - name: Run smoke tests
         run: bash tests/smoke-openchami.sh http://localhost

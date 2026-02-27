@@ -41,9 +41,9 @@ echo
 # 1. Service health
 # ------------------------------------------------------------------
 echo "--- Service health ---"
-check_http "SMD ready"        "$SMD/hsm/v2/service/ready"          "ready"
+check_http "SMD ready"        "$SMD/hsm/v2/service/ready"          "healthy"
 check_http "BSS ready"        "$BSS/boot/v1/service/status"        ""
-check_http "cloud-init alive" "$CI/cloud-init/version"             ""
+check_http "cloud-init alive" "$CI/version"                        ""
 
 # ------------------------------------------------------------------
 # 2. Register a fake node in SMD
@@ -53,11 +53,11 @@ XNAME="x3000c1s1b0n0"
 MAC="02:00:00:00:00:01"
 IP="192.168.0.100"
 
-HTTP_CODE=$(curl -sf -o /dev/null -w '%{http_code}' \
+HTTP_CODE=$(curl -s -o /dev/null -w '%{http_code}' \
     -X POST "$SMD/hsm/v2/State/Components" \
     -H "Content-Type: application/json" \
     -d "{\"Components\":[{\"ID\":\"$XNAME\",\"State\":\"Ready\",\"NetType\":\"Sling\",\"Arch\":\"X86\",\"NID\":100}]}" \
-    2>/dev/null) || HTTP_CODE="000"
+    2>/dev/null)
 
 if [[ "$HTTP_CODE" =~ ^2 ]]; then
     pass "SMD: added component $XNAME"
@@ -65,11 +65,11 @@ else
     fail "SMD: add component returned HTTP $HTTP_CODE"
 fi
 
-HTTP_CODE=$(curl -sf -o /dev/null -w '%{http_code}' \
+HTTP_CODE=$(curl -s -o /dev/null -w '%{http_code}' \
     -X POST "$SMD/hsm/v2/Inventory/EthernetInterfaces" \
     -H "Content-Type: application/json" \
     -d "{\"Description\":\"test NIC\",\"MACAddress\":\"$MAC\",\"ComponentID\":\"$XNAME\",\"IPAddresses\":[{\"IPAddress\":\"$IP\"}]}" \
-    2>/dev/null) || HTTP_CODE="000"
+    2>/dev/null)
 
 if [[ "$HTTP_CODE" =~ ^2 ]]; then
     pass "SMD: registered MAC $MAC"
@@ -93,11 +93,11 @@ GROUP_PAYLOAD=$(cat <<'ENDJSON'
 ENDJSON
 )
 
-HTTP_CODE=$(curl -sf -o /dev/null -w '%{http_code}' \
-    -X POST "$CI/cloud-init/admin/groups/" \
+HTTP_CODE=$(curl -s -o /dev/null -w '%{http_code}' \
+    -X POST "$CI/admin/groups" \
     -H "Content-Type: application/json" \
     -d "$GROUP_PAYLOAD" \
-    2>/dev/null) || HTTP_CODE="000"
+    2>/dev/null)
 
 if [[ "$HTTP_CODE" =~ ^2 ]]; then
     pass "cloud-init: created compute group"
@@ -109,11 +109,11 @@ fi
 # 4. Add node to group
 # ------------------------------------------------------------------
 echo "--- Group membership ---"
-HTTP_CODE=$(curl -sf -o /dev/null -w '%{http_code}' \
+HTTP_CODE=$(curl -s -o /dev/null -w '%{http_code}' \
     -X POST "$SMD/hsm/v2/groups" \
     -H "Content-Type: application/json" \
     -d "{\"label\":\"compute\",\"description\":\"test\",\"members\":{\"ids\":[\"$XNAME\"]}}" \
-    2>/dev/null) || HTTP_CODE="000"
+    2>/dev/null)
 
 if [[ "$HTTP_CODE" =~ ^2 ]]; then
     pass "SMD: added $XNAME to compute group"
@@ -125,9 +125,9 @@ fi
 # 5. Query cloud-init endpoints (impersonation)
 # ------------------------------------------------------------------
 echo "--- Cloud-init endpoint queries ---"
-check_http "meta-data"   "$CI/cloud-init/admin/impersonation/$XNAME/meta-data"   "instance-id"
-check_http "user-data"   "$CI/cloud-init/admin/impersonation/$XNAME/user-data"   "cloud-config"
-check_http "vendor-data" "$CI/cloud-init/admin/impersonation/$XNAME/vendor-data" ""
+check_http "meta-data"   "$CI/admin/impersonation/$XNAME/meta-data"   "instance-id"
+check_http "user-data"   "$CI/admin/impersonation/$XNAME/user-data"   "cloud-config"
+check_http "vendor-data" "$CI/admin/impersonation/$XNAME/vendor-data" ""
 
 # ------------------------------------------------------------------
 # 6. Query BSS for boot parameters
