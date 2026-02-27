@@ -61,8 +61,13 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: OpenCHAMI/deployment-recipes
-          ref: 29bd9fc50f7d0dc1644b65ed3ab03f0143d77967
           path: deployment-recipes
+
+      - name: Use latest OpenCHAMI images
+        working-directory: deployment-recipes/quickstart
+        run: |
+          sed -i 's|ghcr.io/openchami/\([^:]*\):[^ ]*|ghcr.io/openchami/\1:latest|g' \
+            openchami-svcs.yml jwt-security.yml
 
       - name: Generate OpenCHAMI configs
         working-directory: deployment-recipes/quickstart
