@@ -3,11 +3,12 @@ FROM $BASE
 
 LABEL org.opencontainers.image.title="OpenCHAMI CentOS Stream 10 bootc"
 LABEL org.opencontainers.image.description="CentOS Stream 10 bootc image preconfigured for OpenCHAMI provisioning"
-LABEL org.opencontainers.image.source="https://github.com/${IMAGE_REPO:-openchami/oc-image-mode}"
+LABEL org.opencontainers.image.source="https://github.com/${IMAGE_REPO:-kush-gupt/oc-image-mode}"
 LABEL org.openchami.image.type="bootc"
 LABEL org.openchami.image.os="centos-stream10"
 
-RUN dnf -y install \
+RUN dnf -y install epel-release \
+    && dnf -y install \
         cloud-init \
         openssh-server \
         ipmitool \

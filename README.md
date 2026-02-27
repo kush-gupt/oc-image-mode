@@ -1,7 +1,7 @@
 # oc-image-mode
 
-[![Build](https://github.com/OpenCHAMI/oc-image-mode/actions/workflows/build_bootc.yml/badge.svg)](https://github.com/OpenCHAMI/oc-image-mode/actions/workflows/build_bootc.yml)
-[![Tests](https://github.com/OpenCHAMI/oc-image-mode/actions/workflows/integration_test.yml/badge.svg)](https://github.com/OpenCHAMI/oc-image-mode/actions/workflows/integration_test.yml)
+[![Build](https://github.com/kush-gupt/oc-image-mode/actions/workflows/build_bootc.yml/badge.svg)](https://github.com/kush-gupt/oc-image-mode/actions/workflows/build_bootc.yml)
+[![Tests](https://github.com/kush-gupt/oc-image-mode/actions/workflows/integration_test.yml/badge.svg)](https://github.com/kush-gupt/oc-image-mode/actions/workflows/integration_test.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 
 CentOS Stream 10 [bootc](https://github.com/CentOS/centos-bootc) image preconfigured for [OpenCHAMI](https://github.com/OpenCHAMI) provisioning. Built and pushed to GHCR via GitHub Actions.
