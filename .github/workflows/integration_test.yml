@@ -63,11 +63,13 @@ jobs:
           repository: OpenCHAMI/deployment-recipes
           path: deployment-recipes
 
-      - name: Use latest OpenCHAMI images
+      - name: Use latest OpenCHAMI service images
         working-directory: deployment-recipes/quickstart
         run: |
-          sed -i 's|ghcr.io/openchami/\([^:]*\):[^ ]*|ghcr.io/openchami/\1:latest|g' \
-            openchami-svcs.yml jwt-security.yml
+          for svc in smd bss cloud-init; do
+            sed -i "s|ghcr.io/openchami/${svc}:[^ ]*|ghcr.io/openchami/${svc}:latest|g" \
+              openchami-svcs.yml
+          done
 
       - name: Generate OpenCHAMI configs
         working-directory: deployment-recipes/quickstart
