@@ -35,18 +35,18 @@ jobs:
       - name: Log in to GHCR
         if: github.event_name != 'pull_request'
         run: >-
-          podman login
+          sudo podman login
           -u "${{ github.actor }}"
           -p "${{ secrets.GITHUB_TOKEN }}"
           ghcr.io
 
       - name: Pull the image
         if: github.event_name != 'pull_request'
-        run: podman pull "${IMAGE,,}"
+        run: sudo podman pull "${IMAGE,,}"
 
       - name: Build the image locally (PR)
         if: github.event_name == 'pull_request'
-        run: buildah bud -t "${IMAGE,,}" -f Containerfile .
+        run: sudo buildah bud -t "${IMAGE,,}" -f Containerfile .
 
       - name: Run image inspection
         run: sudo bash tests/inspect-image.sh "${IMAGE,,}"
@@ -186,9 +186,9 @@ jobs:
         working-directory: deployment-recipes/quickstart
         run: |
           echo "Waiting for OpenCHAMI services..."
-          for i in $(seq 1 60); do
+          for i in $(seq 1 90); do
             SMD_OK=$(curl -sf http://localhost:27779/hsm/v2/service/ready 2>/dev/null && echo yes || echo no)
-            CI_OK=$(curl -sf http://localhost:27777/cloud-init/version 2>/dev/null && echo yes || echo no)
+            CI_OK=$(curl -so /dev/null http://localhost:27777/cloud-init/version 2>/dev/null && echo yes || echo no)
             if [[ "$SMD_OK" == "yes" && "$CI_OK" == "yes" ]]; then
               echo "All services healthy after ${i}s"
               break
@@ -196,7 +196,7 @@ jobs:
             sleep 1
           done
           curl -sf http://localhost:27779/hsm/v2/service/ready
-          curl -sf http://localhost:27777/cloud-init/version
+          curl -so /dev/null -w "cloud-init: HTTP %{http_code}\n" http://localhost:27777/cloud-init/version
 
       - name: Run smoke tests
         run: bash tests/smoke-openchami.sh http://localhost
