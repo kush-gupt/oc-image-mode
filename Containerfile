@@ -7,7 +7,8 @@ LABEL org.opencontainers.image.source="https://github.com/${IMAGE_REPO:-kush-gup
 LABEL org.openchami.image.type="bootc"
 LABEL org.openchami.image.os="centos-stream10"
 
-RUN dnf -y install \
+RUN dnf -y install epel-release \
+    && dnf -y install \
         cloud-init \
         openssh-server \
         ipmitool \
