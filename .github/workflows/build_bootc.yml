@@ -44,6 +44,9 @@ jobs:
       - name: Lowercase image name
         run: echo "DEST_IMAGE=${DEST_IMAGE,,}" >> "$GITHUB_ENV"
 
+      - name: Sanitize tag list
+        run: echo "TAGLIST=${TAGLIST//\//-}" >> "$GITHUB_ENV"
+
       - name: Build the bootc image
         run: |
           TAG_ARGS=""
