@@ -1,0 +1,143 @@
+name: Integration tests
+
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows: ["Build CentOS Stream 10 bootc image for OpenCHAMI"]
+    types: [completed]
+
+jobs:
+  inspect-image:
+    name: "Tier 1: Image inspection"
+    runs-on: ubuntu-latest
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
+
+    permissions:
+      packages: read
+
+    env:
+      IMAGE: "ghcr.io/${{ github.repository }}:latest"
+
+    steps:
+      - name: Clone the repository
+        uses: actions/checkout@v4
+
+      - name: Install podman and buildah
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq podman buildah
+
+      - name: Log in to GHCR
+        run: >-
+          podman login
+          -u "${{ github.actor }}"
+          -p "${{ secrets.GITHUB_TOKEN }}"
+          ghcr.io
+
+      - name: Pull the image
+        run: podman pull "${IMAGE,,}"
+
+      - name: Run image inspection
+        run: sudo bash tests/inspect-image.sh "${IMAGE,,}"
+
+  smoke-openchami:
+    name: "Tier 2: OpenCHAMI smoke test"
+    runs-on: ubuntu-latest
+    needs: inspect-image
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
+
+    env:
+      COMPOSE_FILE: "base.yml:postgres.yml:jwt-security.yml:openchami-svcs.yml"
+
+    steps:
+      - name: Clone the repository
+        uses: actions/checkout@v4
+
+      - name: Clone OpenCHAMI deployment-recipes
+        uses: actions/checkout@v4
+        with:
+          repository: OpenCHAMI/deployment-recipes
+          ref: 29bd9fc50f7d0dc1644b65ed3ab03f0143d77967
+          path: deployment-recipes
+
+      - name: Generate OpenCHAMI configs
+        working-directory: deployment-recipes/quickstart
+        run: |
+          LOCAL_IP="127.0.0.1"
+          SYSTEM_NAME="ci-test"
+          SYSTEM_DOMAIN="openchami.cluster"
+
+          cat > .env <<-EOF
+          LOCAL_IP=$LOCAL_IP
+          SYSTEM_NAME=$SYSTEM_NAME
+          SYSTEM_DOMAIN=$SYSTEM_DOMAIN
+          POSTGRES_USER=ochami
+          POSTGRES_PASSWORD=ci-test-pg-pass
+          SMD_POSTGRES_PASSWORD=ci-test-smd-pass
+          BSS_POSTGRES_PASSWORD=ci-test-bss-pass
+          HYDRA_POSTGRES_PASSWORD=ci-test-hydra-pass
+          HYDRA_SYSTEM_SECRET=ci-test-hydra-secret-that-is-long-enough
+          EOF
+
+          mkdir -p configs
+          cat > configs/opaal.yaml <<-'OPAAL'
+          issuer_url: http://opaal-idp:3332
+          login_url: http://opaal:3333
+          client_id: openchami
+          client_secret: ci-test-opaal-secret
+          redirect_uri: http://opaal:3333/callback
+          hydra_admin_url: http://hydra:4445
+          hydra_token_url: http://hydra:4444/oauth2/token
+          OPAAL
+
+          cat > configs/hydra.yml <<-'HYDRA'
+          serve:
+            cookies:
+              same_site_mode: Lax
+            public:
+              cors:
+                enabled: true
+          urls:
+            self:
+              issuer: http://hydra:4444
+            consent: http://opaal-idp:3332/consent
+            login: http://opaal-idp:3332/login
+            logout: http://opaal-idp:3332/logout
+          HYDRA
+
+      - name: Start OpenCHAMI services
+        working-directory: deployment-recipes/quickstart
+        run: docker compose up -d
+
+      - name: Wait for services to become healthy
+        working-directory: deployment-recipes/quickstart
+        run: |
+          echo "Waiting for OpenCHAMI services..."
+          for i in $(seq 1 60); do
+            SMD_OK=$(curl -sf http://localhost:27779/hsm/v2/service/ready 2>/dev/null && echo yes || echo no)
+            CI_OK=$(curl -sf http://localhost:27777/cloud-init/version 2>/dev/null && echo yes || echo no)
+            if [[ "$SMD_OK" == "yes" && "$CI_OK" == "yes" ]]; then
+              echo "All services healthy after ${i}s"
+              break
+            fi
+            sleep 1
+          done
+          curl -sf http://localhost:27779/hsm/v2/service/ready
+          curl -sf http://localhost:27777/cloud-init/version
+
+      - name: Run smoke tests
+        run: bash tests/smoke-openchami.sh http://localhost
+
+      - name: Dump logs on failure
+        if: failure()
+        working-directory: deployment-recipes/quickstart
+        run: docker compose logs --tail=50
+
+      - name: Tear down services
+        if: always()
+        working-directory: deployment-recipes/quickstart
+        run: docker compose down --volumes

@@ -1,0 +1,10 @@
+# Editor swap / backup files
+*.swp
+*.swo
+*~
+
+# OS artifacts
+.DS_Store
+
+# Secrets
+.env

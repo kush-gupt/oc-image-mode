@@ -1,0 +1,64 @@
+name: Build CentOS Stream 10 bootc image for OpenCHAMI
+
+on:
+  workflow_dispatch:
+    inputs:
+      containerfile:
+        description: "Containerfile to build"
+        default: "Containerfile"
+        required: false
+      extra_tags:
+        description: "Space-separated extra tags to apply"
+        default: ""
+        required: false
+  push:
+    branches: [main]
+    tags: ["*"]
+
+jobs:
+  build:
+    name: Build and push bootc image
+    runs-on: ubuntu-latest
+
+    env:
+      CONTAINERFILE: ${{ github.event.inputs.containerfile || 'Containerfile' }}
+      DEST_IMAGE: "${{ github.repository }}"
+      TAGLIST: "latest ${{ github.sha }} ${{ github.ref_name }} ${{ github.event.inputs.extra_tags }}"
+      DEST_REGISTRY_HOST: "ghcr.io"
+
+    permissions:
+      contents: write
+      packages: write
+
+    steps:
+      - name: Clone the repository
+        uses: actions/checkout@v4
+
+      - name: Install podman and buildah
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq podman buildah skopeo
+
+      - name: Lowercase image name
+        run: echo "DEST_IMAGE=${DEST_IMAGE,,}" >> "$GITHUB_ENV"
+
+      - name: Build the bootc image
+        run: |
+          TAG_ARGS=""
+          for tag in $TAGLIST; do
+            TAG_ARGS="$TAG_ARGS -t $DEST_REGISTRY_HOST/$DEST_IMAGE:$tag"
+          done
+          buildah bud $TAG_ARGS -f "$CONTAINERFILE" .
+
+      - name: Log in to GitHub Container Registry
+        run: >-
+          podman login
+          -u "${{ github.actor }}"
+          -p "${{ secrets.GITHUB_TOKEN }}"
+          $DEST_REGISTRY_HOST
+
+      - name: Push all tags to GHCR
+        run: |
+          for tag in $TAGLIST; do
+            podman push "$DEST_REGISTRY_HOST/$DEST_IMAGE:$tag"
+          done
