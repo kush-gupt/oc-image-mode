@@ -61,7 +61,7 @@ jobs:
       github.event.workflow_run.conclusion == 'success'
 
     env:
-      COMPOSE_FILE: "base.yml:postgres.yml:jwt-security.yml:openchami-svcs.yml"
+      COMPOSE_FILE: "base.yml:postgres.yml:jwt-security.yml:openchami-svcs.yml:ci-ports.yml"
 
     steps:
       - name: Clone the repository
@@ -80,6 +80,19 @@ jobs:
             sed -i "s|ghcr.io/openchami/${svc}:[^ ]*|ghcr.io/openchami/${svc}:latest|g" \
               openchami-svcs.yml
           done
+
+      - name: Expose service ports for CI
+        working-directory: deployment-recipes/quickstart
+        run: |
+          cat > ci-ports.yml << 'YAML'
+          services:
+            smd:
+              ports:
+                - "27779:27779"
+            bss:
+              ports:
+                - "27778:27778"
+          YAML
 
       - name: Generate OpenCHAMI configs
         working-directory: deployment-recipes/quickstart
