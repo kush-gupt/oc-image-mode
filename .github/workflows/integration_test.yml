@@ -2,6 +2,8 @@ name: Integration tests
 
 on:
   workflow_dispatch:
+  pull_request:
+    branches: [main]
   workflow_run:
     workflows: ["Build CentOS Stream 10 bootc image for OpenCHAMI"]
     types: [completed]
@@ -12,6 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     if: >-
       github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'pull_request' ||
       github.event.workflow_run.conclusion == 'success'
 
     permissions:
@@ -30,6 +33,7 @@ jobs:
           sudo apt-get install -y -qq podman buildah
 
       - name: Log in to GHCR
+        if: github.event_name != 'pull_request'
         run: >-
           podman login
           -u "${{ github.actor }}"
@@ -37,7 +41,12 @@ jobs:
           ghcr.io
 
       - name: Pull the image
+        if: github.event_name != 'pull_request'
         run: podman pull "${IMAGE,,}"
+
+      - name: Build the image locally (PR)
+        if: github.event_name == 'pull_request'
+        run: buildah bud -t "${IMAGE,,}" -f Containerfile .
 
       - name: Run image inspection
         run: sudo bash tests/inspect-image.sh "${IMAGE,,}"
@@ -48,6 +57,7 @@ jobs:
     needs: inspect-image
     if: >-
       github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'pull_request' ||
       github.event.workflow_run.conclusion == 'success'
 
     env:
@@ -91,17 +101,56 @@ jobs:
           EOF
 
           mkdir -p configs
-          cat > configs/opaal.yaml <<-'OPAAL'
-          issuer_url: http://opaal-idp:3332
-          login_url: http://opaal:3333
-          client_id: openchami
-          client_secret: ci-test-opaal-secret
-          redirect_uri: http://opaal:3333/callback
-          hydra_admin_url: http://hydra:4445
-          hydra_token_url: http://hydra:4444/oauth2/token
+          cat > configs/opaal.yaml << 'OPAAL'
+          version: "0.0.1"
+          server:
+            host: "opaal"
+            port: 3333
+            callback: "/oidc/callback"
+            issuer:
+              host: "opaal-idp"
+              port: 3332
+              clients:
+                - id: openchami
+                  secret: ci-test-opaal-secret
+                  name: openchami
+                  redirect-uris:
+                    - "http://opaal:3333/oidc/callback"
+          authentication:
+            state: ""
+            test-all: false
+            clients:
+              - id: openchami
+                secret: ci-test-opaal-secret
+                name: openchami
+                provider:
+                  issuer: "http://opaal-idp:3332"
+                redirect-uris:
+                  - "http://opaal:3333/oidc/callback"
+          authorization:
+            key-path: ./keys
+            token:
+              forwarding: false
+              refresh: false
+              duration: 16h
+            endpoints:
+              issuer: http://hydra:4444
+              config: http://hydra:4444/.well-known/openid-configuration
+              jwks: http://hydra:4444/.well-known/jwks.json
+              trusted-issuers: http://hydra:4445/admin/trust/grants/jwt-bearer/issuers
+              login: http://hydra:4433/self-service/login/api
+              clients: http://hydra:4445/admin/clients
+              authorize: http://hydra:4444/oauth2/auth
+              token: http://hydra:4444/oauth2/token
+          options:
+            run-once: true
+            open-browser: false
+            flow: authorization_code
+            cache-only: false
+            verbose: true
           OPAAL
 
-          cat > configs/hydra.yml <<-'HYDRA'
+          cat > configs/hydra.yml << 'HYDRA'
           serve:
             cookies:
               same_site_mode: Lax

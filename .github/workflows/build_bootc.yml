@@ -14,6 +14,8 @@ on:
   push:
     branches: [main]
     tags: ["*"]
+  pull_request:
+    branches: [main]
 
 jobs:
   build:
@@ -51,6 +53,7 @@ jobs:
           buildah bud $TAG_ARGS -f "$CONTAINERFILE" .
 
       - name: Log in to GitHub Container Registry
+        if: github.event_name != 'pull_request'
         run: >-
           podman login
           -u "${{ github.actor }}"
@@ -58,6 +61,7 @@ jobs:
           $DEST_REGISTRY_HOST
 
       - name: Push all tags to GHCR
+        if: github.event_name != 'pull_request'
         run: |
           for tag in $TAGLIST; do
             podman push "$DEST_REGISTRY_HOST/$DEST_IMAGE:$tag"
