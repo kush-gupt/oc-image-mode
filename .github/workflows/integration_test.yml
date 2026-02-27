@@ -81,7 +81,7 @@ jobs:
               openchami-svcs.yml
           done
 
-      - name: Expose service ports for CI
+      - name: CI compose overrides (ports, disable JWT, enable impersonation)
         working-directory: deployment-recipes/quickstart
         run: |
           cat > ci-ports.yml << 'YAML'
@@ -89,9 +89,16 @@ jobs:
             smd:
               ports:
                 - "27779:27779"
+              environment:
+                - SMD_JWKS_URL=
             bss:
               ports:
                 - "27778:27778"
+              environment:
+                - BSS_JWKS_URL=
+            cloud-init:
+              environment:
+                - IMPERSONATION=true
           YAML
 
       - name: Generate OpenCHAMI configs
@@ -188,7 +195,7 @@ jobs:
           echo "Waiting for OpenCHAMI services..."
           for i in $(seq 1 90); do
             SMD_OK=$(curl -sf http://localhost:27779/hsm/v2/service/ready 2>/dev/null && echo yes || echo no)
-            CI_OK=$(curl -so /dev/null http://localhost:27777/cloud-init/version 2>/dev/null && echo yes || echo no)
+            CI_OK=$(curl -so /dev/null http://localhost:27777/version 2>/dev/null && echo yes || echo no)
             if [[ "$SMD_OK" == "yes" && "$CI_OK" == "yes" ]]; then
               echo "All services healthy after ${i}s"
               break
@@ -196,7 +203,7 @@ jobs:
             sleep 1
           done
           curl -sf http://localhost:27779/hsm/v2/service/ready
-          curl -so /dev/null -w "cloud-init: HTTP %{http_code}\n" http://localhost:27777/cloud-init/version
+          curl -so /dev/null -w "cloud-init: HTTP %{http_code}\n" http://localhost:27777/version
 
       - name: Run smoke tests
         run: bash tests/smoke-openchami.sh http://localhost
